@@ -9,117 +9,99 @@ import { Waitlist } from '../models/Waitlist.js';
 import { Staff } from '../models/Staff.js';
 import { MenuItem } from '../models/MenuItem.js';
 import { uploadToCloudinary } from '../config/cloudinary.config.js';
-
 import { FoodOrder } from '../models/FoodOrder.js';
 import { IncidentReport } from '../models/IncidentReport.js';
 import { Review } from '../models/Review.js';
 import { Gift } from '../models/Gift.js';
+import { cacheService } from '../services/cache.service.js';
+
+// Cache TTL constants
+const TTL = { profile: 300, dashboard: 120, list: 180, payments: 300 };
+const ckey = (type, hostId) => `host:${type}:${hostId}`;
 
 // --- HOST ACCOUNT PROFILE ---
 export const getHostProfile = async (req, res, next) => {
     try {
-        console.log(`[getHostProfile] Fetching profile for userID: ${req.user.id}`);
-        // Both Host Model and Venue define the host profile
-        let hostUser = await Host.findById(req.user.id).select('-password -refreshToken');
-        
-        // --- AUTO MIGRATION FOR LEGACY HOSTS ---
+        const hostId = req.user.id;
+        const CACHE_KEY = ckey('profile', hostId);
+        const cached = await cacheService.get(CACHE_KEY);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
+        let [hostUser, venue] = await Promise.all([
+            Host.findById(hostId).select('-password -refreshToken').lean(),
+            Venue.findOne({ hostId }).select('name address venueType _id').lean()
+        ]);
+
         if (!hostUser) {
-            const legacyUser = await User.findById(req.user.id);
+            const legacyUser = await User.findById(hostId).lean();
             if (legacyUser && ['host', 'HOST', 'superadmin', 'admin'].includes(legacyUser.role)) {
-                console.log(`[getHostProfile] Auto-migrating legacy host: ${legacyUser._id}`);
                 const newHost = await Host.create({
-                    _id: legacyUser._id, // Retain ID so existing JWT tokens work
-                    name: legacyUser.name || 'Migrated Host',
+                    _id: legacyUser._id, name: legacyUser.name || 'Migrated Host',
                     username: legacyUser.username || `host_${legacyUser._id.toString().slice(-5)}`,
-                    email: legacyUser.email,
-                    phone: legacyUser.phone,
-                    role: 'HOST',
-                    hostStatus: legacyUser.onboardingCompleted ? 'ACTIVE' : 'CREATED',
-                    isActive: true,
+                    email: legacyUser.email, phone: legacyUser.phone,
+                    role: 'HOST', hostStatus: legacyUser.onboardingCompleted ? 'ACTIVE' : 'CREATED', isActive: true,
                 });
-                hostUser = newHost;
+                hostUser = newHost.toObject();
             }
         }
 
-        const venue = await Venue.findOne({ hostId: req.user.id });
+        if (!hostUser) return res.status(404).json({ success: false, message: 'Host not found' });
 
-        if (!hostUser) {
-            return res.status(404).json({ success: false, message: 'Host not found' });
-        }
+        const profileData = {
+            name: hostUser.name || 'Anonymous Host',
+            username: hostUser.username || '',
+            profileImage: hostUser.profileImage || '',
+            bio: '',
+            brandName: venue?.name || '',
+            location: hostUser.location?.address || venue?.address || '',
+            hostType: venue?.venueType?.toLowerCase() || 'club',
+            contactNumber: hostUser.phone || '',
+            email: hostUser.email || '',
+            instagram: '', website: '',
+            venueId: venue?._id,
+            hostStatus: hostUser.hostStatus || 'CREATED'
+        };
 
-        res.status(200).json({
-            success: true,
-            data: {
-                name: hostUser.name || 'Anonymous Host',
-                username: hostUser.username || '',
-                profileImage: hostUser.profileImage || '',
-                bio: '',
-                brandName: venue?.name || '',
-                location: hostUser.location?.address || venue?.address || '',
-                hostType: venue?.venueType?.toLowerCase() || 'club',
-                contactNumber: hostUser.phone || '',
-                email: hostUser.email || '',
-                instagram: '',
-                website: '',
-                venueId: venue?._id,
-                hostStatus: hostUser.hostStatus || 'CREATED'
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
+        await cacheService.set(CACHE_KEY, profileData, TTL.profile);
+        res.status(200).json({ success: true, data: profileData });
+    } catch (error) { next(error); }
 };
 
 export const updateHostProfile = async (req, res, next) => {
     try {
         const { name, username, profileImage, bio, brandName, location, hostType, contactNumber, email, instagram, website } = req.body;
-        
-        // Handle Unique Username Validation
+        const hostId = req.user.id;
+
         if (username) {
-            const displayName = req.user.name || '';
-            const usernameLowercase = username.toLowerCase().trim();
-            const existingUser = await Host.findOne({ username: usernameLowercase, _id: { $ne: req.user.id } });
-            if (existingUser) {
-                return res.status(400).json({ success: false, message: 'Username is already taken' });
-            }
+            const usernameLower = username.toLowerCase().trim();
+            const existing = await Host.findOne({ username: usernameLower, _id: { $ne: hostId } }).select('_id').lean();
+            if (existing) return res.status(400).json({ success: false, message: 'Username is already taken' });
         }
 
-        const hostUser = await Host.findById(req.user.id);
-        if (!hostUser) return res.status(404).json({ success: false, message: 'Host not found' });
+        const updatePayload = {};
+        if (name !== undefined) updatePayload.name = name;
+        if (username !== undefined) updatePayload.username = username.toLowerCase().trim();
+        if (location !== undefined) updatePayload['location.address'] = location;
+        if (contactNumber !== undefined) updatePayload.phone = contactNumber;
+        if (email !== undefined) updatePayload.email = email;
 
         let finalProfileImage = profileImage;
         if (finalProfileImage && (finalProfileImage.startsWith('data:image') || finalProfileImage.startsWith('file://'))) {
             try {
-                const { uploadToCloudinary } = await import('../config/cloudinary.config.js');
                 finalProfileImage = await uploadToCloudinary(finalProfileImage, 'entry-club/hosts');
-            } catch (cloudErr) {
-                console.log('Cloudinary profile image upload failed for host:', cloudErr.message);
-                // In case of error, just use whatever was sent
-            }
+            } catch (e) { /* keep original */ }
         }
+        if (finalProfileImage !== undefined) updatePayload.profileImage = finalProfileImage;
 
-        if (name !== undefined) hostUser.name = name;
-        if (username !== undefined) hostUser.username = username.toLowerCase().trim();
-        if (finalProfileImage !== undefined) hostUser.profileImage = finalProfileImage;
-        if (location !== undefined) hostUser.location.address = location;
-        if (contactNumber !== undefined) hostUser.phone = contactNumber;
-        if (email !== undefined) hostUser.email = email;
+        const hostUser = await Host.findByIdAndUpdate(hostId, { $set: updatePayload }, { new: true }).select('name username profileImage').lean();
+        if (!hostUser) return res.status(404).json({ success: false, message: 'Host not found' });
 
-        await hostUser.save();
+        // Bust profile cache so next read is fresh
+        await cacheService.delete(ckey('profile', hostId));
 
-        res.status(200).json({
-            success: true,
-            message: 'Profile updated successfully',
-            data: {
-                name: hostUser.name,
-                username: hostUser.username,
-                profileImage: hostUser.profileImage
-            }
-        });
+        res.status(200).json({ success: true, message: 'Profile updated successfully', data: hostUser });
     } catch (error) {
-        if (error.name === 'ValidationError') {
-            console.error('[HostController] updateProfile Validation Errors:', JSON.stringify(error.errors, null, 2));
-        }
+        if (error.name === 'ValidationError') console.error('[HostController] updateProfile Errors:', error.errors);
         next(error);
     }
 };
@@ -211,34 +193,22 @@ export const completeProfile = async (req, res, next) => {
 // --- VENUE MANAGEMENT ---
 export const getVenueProfile = async (req, res, next) => {
     try {
-        console.log(`[getVenueProfile] Fetching venue for hostID: ${req.user.id}`);
-        const venue = await Venue.findOne({ hostId: req.user.id }).lean();
+        const hostId = req.user.id;
+        const CACHE_KEY = ckey('venue', hostId);
+        const cached = await cacheService.get(CACHE_KEY);
+        if (cached) return res.status(200).json({ success: true, data: cached });
 
+        const venue = await Venue.findOne({ hostId }).lean();
         if (!venue) {
-            // Return defaults if none found
-            return res.status(200).json({
-                success: true,
-                data: {
-                    name: '',
-                    venueType: 'Nightclub',
-                    description: '',
-                    address: '',
-                    capacity: 0,
-                    openingTime: '10:00 PM',
-                    closingTime: '04:00 AM',
-                    rules: 'Strictly Elegant',
-                    heroImage: '',
-                    images: [],
-                    amenities: []
-                }
-            });
+            return res.status(200).json({ success: true, data: {
+                name: '', venueType: 'Nightclub', description: '', address: '',
+                capacity: 0, openingTime: '10:00 PM', closingTime: '04:00 AM',
+                rules: 'Strictly Elegant', heroImage: '', images: [], amenities: []
+            }});
         }
-
+        await cacheService.set(CACHE_KEY, venue, TTL.profile);
         res.status(200).json({ success: true, data: venue });
-    } catch (error) {
-        console.error(`[getVenueProfile] Error:`, error);
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
 export const updateVenueProfile = async (req, res, next) => {
@@ -336,13 +306,14 @@ export const updateVenueProfile = async (req, res, next) => {
             }
         }).catch(err => console.log('Socket Notify Error:', err.message));
 
-        res.status(200).json({
-            success: true,
-            message: 'Venue profile updated successfully',
-            data: venue
-        });
+        // Bust venue + profile caches so next reads are fresh
+        await Promise.all([
+            cacheService.delete(ckey('venue', req.user.id)),
+            cacheService.delete(ckey('profile', req.user.id)),
+        ]);
+
+        res.status(200).json({ success: true, message: 'Venue profile updated successfully', data: venue });
     } catch (error) {
-        console.error(`[updateVenueProfile] Error:`, error);
         next(error);
     }
 };
@@ -350,25 +321,27 @@ export const updateVenueProfile = async (req, res, next) => {
 // --- PAYMENTS & PAYOUTS ---
 export const getPayments = async (req, res, next) => {
     try {
-        const bookings = await Booking.find({ hostId: req.user.id })
+        const hostId = req.user.id;
+        const CACHE_KEY = ckey('payments', hostId);
+        const cached = await cacheService.get(CACHE_KEY);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
+        const bookings = await Booking.find({ hostId })
             .populate('userId', 'name profileImage')
             .sort({ createdAt: -1 })
+            .select('userId ticketType pricePaid paymentStatus createdAt')
             .lean();
 
-        const mappedPayments = bookings.map(b => ({
-            id: b._id,
-            memberName: b.userId?.name || 'Unknown',
+        const data = bookings.map(b => ({
+            id: b._id, memberName: b.userId?.name || 'Unknown',
             memberImage: b.userId?.profileImage || '',
-            plan: b.ticketType || 'Standard',
-            amount: b.pricePaid || 0,
+            plan: b.ticketType || 'Standard', amount: b.pricePaid || 0,
             status: b.paymentStatus === 'paid' ? 'Success' : 'Pending',
             date: b.createdAt
         }));
-
-        res.status(200).json({ success: true, data: mappedPayments });
-    } catch (error) {
-        next(error);
-    }
+        await cacheService.set(CACHE_KEY, data, TTL.payments);
+        res.status(200).json({ success: true, data });
+    } catch (error) { next(error); }
 };
 
 export const getPayouts = async (req, res, next) => {
@@ -408,21 +381,19 @@ export const getPayouts = async (req, res, next) => {
 // ── STAFF (Staff Collection) ──────────────────────────────────────────
 export const getStaff = async (req, res, next) => {
     try {
-        let staff = await Staff.find({ hostId: req.user.id })
+        const hostId = req.user.id;
+        const CACHE_KEY = ckey('staff', hostId);
+        const cached = await cacheService.get(CACHE_KEY);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
+        const staff = await Staff.find({ hostId })
             .select('-password -refreshToken')
             .sort({ createdAt: -1 })
             .lean();
-
-        // Map Host schema to unified name for frontend compatibility
-        if (req.user && !req.user.name) {
-            req.user.name = 'Stitch User';
-        }  
-        staff = staff.map(s => ({ ...s, fullName: s.name }));
-
-        res.status(200).json({ success: true, data: staff });
-    } catch (error) {
-        next(error);
-    }
+        const data = staff.map(s => ({ ...s, fullName: s.name }));
+        await cacheService.set(CACHE_KEY, data, TTL.list);
+        res.status(200).json({ success: true, data });
+    } catch (error) { next(error); }
 };
 
 export const addStaff = async (req, res, next) => {
@@ -465,35 +436,22 @@ export const addStaff = async (req, res, next) => {
         };
 
         const staff = await Staff.create(staffData);
-
+        // Bust staff cache
+        await cacheService.delete(ckey('staff', req.user.id));
         const { password: _, refreshToken: __, name: staffName, ...safeStaff } = staff.toObject();
-        res.status(201).json({
-            success: true,
-            data: { ...safeStaff, fullName: staffName },
-            message: `${staffType} added successfully`
-        });
-    } catch (error) {
-        next(error);
-    }
+        res.status(201).json({ success: true, data: { ...safeStaff, fullName: staffName }, message: `${staffType} added successfully` });
+    } catch (error) { next(error); }
 };
 
 export const removeStaff = async (req, res, next) => {
     try {
         const { staffId } = req.params;
 
-        const result = await Staff.findOneAndDelete({
-            _id: staffId,
-            hostId: req.user.id
-        });
-
-        if (!result) {
-            return res.status(404).json({ success: false, message: 'Staff member not found' });
-        }
-
+        const result = await Staff.findOneAndDelete({ _id: staffId, hostId: req.user.id });
+        if (!result) return res.status(404).json({ success: false, message: 'Staff member not found' });
+        await cacheService.delete(ckey('staff', req.user.id));
         res.status(200).json({ success: true, message: 'Staff member removed successfully' });
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
 export const updateStaff = async (req, res, next) => {
@@ -522,17 +480,11 @@ export const updateStaff = async (req, res, next) => {
             { $set: updateData },
             { new: true }
         ).select('-password -refreshToken').lean();
-
-        if (!staff) {
-            return res.status(404).json({ success: false, message: 'Staff member not found' });
-        }
-
+        if (!staff) return res.status(404).json({ success: false, message: 'Staff member not found' });
+        await cacheService.delete(ckey('staff', req.user.id));
         staff.fullName = staff.name;
-
         res.status(200).json({ success: true, data: staff });
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
 export const getWaitlist = async (req, res, next) => {
@@ -772,19 +724,17 @@ export const removeMenuItem = async (req, res, next) => {
 // --- COUPON MANAGEMENT (High Precision Orchestration) ---
 export const getCoupons = async (req, res, next) => {
     try {
-        // High-performance tiered lookup (Host specific + Legacy System wide)
-        const coupons = await Coupon.find({ 
-            $or: [
-                { hostId: req.user.id },
-                { hostId: { $exists: false } }, // Global/Pre-migration coupons
-                { hostId: null }
-            ]
+        const hostId = req.user.id;
+        const CACHE_KEY = ckey('coupons', hostId);
+        const cached = await cacheService.get(CACHE_KEY);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
+        const coupons = await Coupon.find({
+            $or: [{ hostId }, { hostId: { $exists: false } }, { hostId: null }]
         }).sort({ createdAt: -1 }).lean();
-        
+        await cacheService.set(CACHE_KEY, coupons, TTL.list);
         res.status(200).json({ success: true, data: coupons });
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
 export const createCoupon = async (req, res, next) => {
@@ -799,23 +749,16 @@ export const createCoupon = async (req, res, next) => {
         const atomicTitle = title || `PROMO: ${code.toUpperCase()}`;
         
         const coupon = await Coupon.create({
-            hostId:        req.user.id,
-            title:         atomicTitle,
-            code:          code.trim().toUpperCase(),
-            discountType:  discountType || 'percentage',
-            discountValue: Number(discountValue),
-            minPurchase:   Number(minPurchase) || 0,
-            expiryDate:    expiryDate || null,
-            usageLimit:    Number(usageLimit) || 100,
-            pointsCost:    Math.max(0, parseInt(pointsCost) || 0),
-            applicableOn:  applicableOn || 'all',
-            isActive:      true, // ← always active on creation
+            hostId: req.user.id, title: atomicTitle,
+            code: code.trim().toUpperCase(), discountType: discountType || 'percentage',
+            discountValue: Number(discountValue), minPurchase: Number(minPurchase) || 0,
+            expiryDate: expiryDate || null, usageLimit: Number(usageLimit) || 100,
+            pointsCost: Math.max(0, parseInt(pointsCost) || 0),
+            applicableOn: applicableOn || 'all', isActive: true,
         });
-
-        console.log(`[createCoupon] ✅ Created: ${coupon.code} (${coupon._id}) by host ${req.user.id}`);
+        await cacheService.delete(ckey('coupons', req.user.id));
         res.status(201).json({ success: true, data: coupon, message: 'Coupon created successfully' });
     } catch (error) {
-        console.error('Create Coupon Error:', error);
         res.status(400).json({ success: false, message: error.message || 'Failed to create coupon' });
     }
 };
@@ -824,10 +767,9 @@ export const removeCoupon = async (req, res, next) => {
     try {
         const { couponId } = req.params;
         await Coupon.findOneAndDelete({ _id: couponId, hostId: req.user.id });
+        await cacheService.delete(ckey('coupons', req.user.id));
         res.status(200).json({ success: true, message: 'Coupon removed successfully' });
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
 export const approveMedia = async (req, res, next) => {
@@ -844,42 +786,32 @@ export const approveMedia = async (req, res, next) => {
 
 export const getDashboardStats = async (req, res, next) => {
     try {
+        const hostId = req.user.id;
+        const CACHE_KEY = ckey('dashboard', hostId);
+        const cached = await cacheService.get(CACHE_KEY);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
         const [bookingStats, eventStats] = await Promise.all([
             Booking.aggregate([
-                { $match: { hostId: req.user.id, paymentStatus: 'paid' } },
-                { $group: {
-                    _id: null,
-                    totalRevenue: { $sum: "$pricePaid" },
-                    ticketsSold: { $sum: { $cond: [{ $isArray: "$tickets" }, { $size: "$tickets" }, 1] } }
-                }}
+                { $match: { hostId, paymentStatus: 'paid' } },
+                { $group: { _id: null, totalRevenue: { $sum: '$pricePaid' }, ticketsSold: { $sum: 1 } } }
             ]),
             Event.aggregate([
-                { $match: { hostId: req.user.id } },
-                { $group: {
-                    _id: null,
-                    totalViews: { $sum: "$views" },
-                    liveEventsCount: { $sum: { $cond: [{ $eq: ["$status", "LIVE"] }, 1, 0] } },
-                    draftEventsCount: { $sum: { $cond: [{ $eq: ["$status", "DRAFT"] }, 1, 0] } }
-                }}
+                { $match: { hostId } },
+                { $group: { _id: null, totalViews: { $sum: '$views' },
+                    liveEventsCount: { $sum: { $cond: [{ $eq: ['$status', 'LIVE'] }, 1, 0] } },
+                    draftEventsCount: { $sum: { $cond: [{ $eq: ['$status', 'DRAFT'] }, 1, 0] } } }}
             ])
         ]);
 
         const bData = bookingStats[0] || { totalRevenue: 0, ticketsSold: 0 };
         const eData = eventStats[0] || { totalViews: 0, liveEventsCount: 0, draftEventsCount: 0 };
+        const data = { totalRevenue: bData.totalRevenue, ticketsSold: bData.ticketsSold,
+            totalViews: eData.totalViews, activeEvents: eData.liveEventsCount, draftEvents: eData.draftEventsCount };
 
-        res.status(200).json({
-            success: true,
-            data: {
-                totalRevenue: bData.totalRevenue,
-                ticketsSold: bData.ticketsSold,
-                totalViews: eData.totalViews,
-                activeEvents: eData.liveEventsCount,
-                draftEvents: eData.draftEventsCount
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
+        await cacheService.set(CACHE_KEY, data, TTL.dashboard);
+        res.status(200).json({ success: true, data });
+    } catch (error) { next(error); }
 };
 
 // --- ORDERS (Food/Drink) ---
