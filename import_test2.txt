@@ -1,0 +1,6 @@
+﻿Firebase Admin SDK: Initialized successfully Γ£à
+[Cache Engine] Upstash Redis Hybrid Layer Active Γ£à
+[NotificationService] Push Gateway Ready via Central Config Γ£à
+[2026-04-08 02:26:25] [32minfo[39m: Γ£ö MongoDB connected (admin-api)
+[2026-04-08 02:26:25] [32minfo[39m: ≡ƒÜÇ Admin API on port 3000
+[2026-04-08 02:26:29] [32minfo[39m: ΓÜí Admin cache warm-up complete
