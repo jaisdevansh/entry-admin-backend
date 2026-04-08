@@ -119,8 +119,10 @@ export const getRevenueTrend = async (req, res, next) => {
             return res.status(200).json({ success: true, data: cachedData, source: 'cache' });
         }
 
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const today = new Date();
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(today.getDate() - 29); // Last 30 days including today
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
 
         // ⚡ ADMIN: No hostId filter, HOST: Filter by hostId
         const matchQuery = isAdmin 
@@ -248,8 +250,10 @@ export const getBookingTrend = async (req, res, next) => {
             return res.status(200).json({ success: true, data: cachedData, source: 'cache' });
         }
 
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const today = new Date();
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(today.getDate() - 29); // Last 30 days including today
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
 
         // ⚡ ADMIN: No hostId filter, HOST: Filter by hostId
         const matchQuery = isAdmin 
