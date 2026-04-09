@@ -119,15 +119,15 @@ export const getRevenueTrend = async (req, res, next) => {
             return res.status(200).json({ success: true, data: cachedData, source: 'cache' });
         }
 
+        // Get data from April 1st of current year
         const today = new Date();
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(today.getDate() - 29); // Last 30 days including today
-        thirtyDaysAgo.setHours(0, 0, 0, 0);
+        const aprilFirst = new Date(today.getFullYear(), 3, 1); // April 1st (month is 0-indexed)
+        aprilFirst.setHours(0, 0, 0, 0);
 
         // ⚡ ADMIN: No hostId filter, HOST: Filter by hostId
         const matchQuery = isAdmin 
-            ? { paymentStatus: 'paid', createdAt: { $gte: thirtyDaysAgo } }
-            : { hostId: req.user.id, paymentStatus: 'paid', createdAt: { $gte: thirtyDaysAgo } };
+            ? { paymentStatus: 'paid', createdAt: { $gte: aprilFirst } }
+            : { hostId: req.user.id, paymentStatus: 'paid', createdAt: { $gte: aprilFirst } };
 
         const [ordersAgg, bookingsAgg] = await Promise.all([
             FoodOrder.aggregate([
@@ -250,15 +250,15 @@ export const getBookingTrend = async (req, res, next) => {
             return res.status(200).json({ success: true, data: cachedData, source: 'cache' });
         }
 
+        // Get data from April 1st of current year
         const today = new Date();
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(today.getDate() - 29); // Last 30 days including today
-        thirtyDaysAgo.setHours(0, 0, 0, 0);
+        const aprilFirst = new Date(today.getFullYear(), 3, 1); // April 1st (month is 0-indexed)
+        aprilFirst.setHours(0, 0, 0, 0);
 
         // ⚡ ADMIN: No hostId filter, HOST: Filter by hostId
         const matchQuery = isAdmin 
-            ? { paymentStatus: 'paid', createdAt: { $gte: thirtyDaysAgo } }
-            : { hostId: req.user.id, paymentStatus: 'paid', createdAt: { $gte: thirtyDaysAgo } };
+            ? { paymentStatus: 'paid', createdAt: { $gte: aprilFirst } }
+            : { hostId: req.user.id, paymentStatus: 'paid', createdAt: { $gte: aprilFirst } };
 
         const bookingsAgg = await Booking.aggregate([
             { $match: matchQuery },
