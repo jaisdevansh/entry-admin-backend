@@ -17,13 +17,14 @@ export const protect = async (req, res, next) => {
         }
 
         if (!token) {
+            console.log('[Auth] No token provided');
             return res.status(401).json({ success: false, message: 'Not authorized to access this route', data: {} });
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123');
+        console.log('[Auth] Token decoded:', { userId: decoded.userId, role: decoded.role });
 
         // ⚡ HIGH-PERFORMANCE ROLE & STATUS VALIDATION (Sub-ms via Redis)
-        // Correct segments - this catches if a user is deactivated or their role changes
         const CACHE_KEY = `auth_status_${decoded.userId}`;
         let cached = await cacheService.get(CACHE_KEY);
         
@@ -32,7 +33,7 @@ export const protect = async (req, res, next) => {
 
         if (!cached) {
             const projection = 'role isActive';
-             // Atomic, fast lookup — Admin first to avoid User fallback for ADMIN role
+            // Check in priority order: Admin > Host > Staff > User
             const user = await Admin.findById(decoded.userId).select(projection).lean() ||
                    await Host.findById(decoded.userId).select(projection).lean() ||
                    await Staff.findById(decoded.userId).select(projection).lean() ||
@@ -41,20 +42,23 @@ export const protect = async (req, res, next) => {
             if (user) {
                 userRole = user.role;
                 isActive = user.isActive;
-                await cacheService.set(CACHE_KEY, { role: userRole, isActive }, 120); // 2 min cache
+                console.log('[Auth] User found:', { userId: decoded.userId, role: userRole, isActive });
+                await cacheService.set(CACHE_KEY, { role: userRole, isActive }, 120);
             } else {
+                console.log('[Auth] User not found in any collection:', decoded.userId);
                 return res.status(401).json({ success: false, message: 'Record missing from registry.' });
             }
         } else {
             userRole = cached.role;
             isActive = cached.isActive;
+            console.log('[Auth] Cache hit:', { userId: decoded.userId, role: userRole, isActive });
         }
 
         if (!isActive) {
+            console.log('[Auth] User inactive:', decoded.userId);
             return res.status(401).json({ success: false, message: 'Your administrative session has been revoked.' });
         }
 
-        // 🛠️ FIX: Standardize User ID across all consumers (id, _id, userId)
         const userId = decoded.userId || decoded.id || decoded._id;
         
         req.user = { 
@@ -63,7 +67,7 @@ export const protect = async (req, res, next) => {
             _id: userId, 
             userId: userId,
             role: userRole 
-        }; // Attach updated role and standardized IDs
+        };
         
         next();
     } catch (error) {
