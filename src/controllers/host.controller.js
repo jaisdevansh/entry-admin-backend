@@ -181,6 +181,9 @@ export const completeProfile = async (req, res, next) => {
 
                 await host.save();
                 
+                // ⚡ CLEAR PROFILE CACHE so fresh data is fetched
+                await cacheService.delete(ckey('profile', host._id));
+                
                 // ⚡ AUTO-CREATE VENUE PROFILE from onboarding data
                 // Check if venue already exists
                 const existingVenue = await Venue.findOne({ hostId: host._id });
