@@ -27,6 +27,7 @@ export const getHostProfile = async (req, res, next) => {
         const cached = await cacheService.get(CACHE_KEY);
         if (cached) return res.status(200).json({ success: true, data: cached });
 
+        // ⚡ OPTIMIZED: Parallel queries with lean() for faster performance
         let [hostUser, venue] = await Promise.all([
             Host.findById(hostId).select('-password -refreshToken').lean(),
             Venue.findOne({ hostId }).select('name address venueType _id').lean()
@@ -62,7 +63,7 @@ export const getHostProfile = async (req, res, next) => {
             hostStatus: hostUser.hostStatus || 'CREATED'
         };
 
-        await cacheService.set(CACHE_KEY, profileData, TTL.profile);
+        await cacheService.set(CACHE_KEY, profileData, 300); // 5 min cache
         res.status(200).json({ success: true, data: profileData });
     } catch (error) { next(error); }
 };
@@ -179,6 +180,29 @@ export const completeProfile = async (req, res, next) => {
                 host.kycSubmitted = true;
 
                 await host.save();
+                
+                // ⚡ AUTO-CREATE VENUE PROFILE from onboarding data
+                // Check if venue already exists
+                const existingVenue = await Venue.findOne({ hostId: host._id });
+                if (!existingVenue) {
+                    // Create basic venue profile with onboarding data
+                    await Venue.create({
+                        hostId: host._id,
+                        name: name || 'My Venue', // Use host name as default venue name
+                        venueType: 'Nightclub', // Default type
+                        address: location || '', // Use onboarding location
+                        description: '',
+                        capacity: 0,
+                        openingTime: '10:00 PM',
+                        closingTime: '04:00 AM',
+                        rules: 'Strictly Elegant',
+                        heroImage: '',
+                        images: [],
+                        amenities: []
+                    });
+                    console.log(`[SYS] Auto-created venue profile for Host: ${host._id}`);
+                }
+                
                 console.log(`[SYS] Background KYC upload completed for Host: ${host._id}`);
             } catch (bgError) {
                 console.error(`[SYS CATCH] Background KYC upload failed for Host: ${host._id}`, bgError);

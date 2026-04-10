@@ -146,10 +146,21 @@ export const deleteEvent = async (req, res, next) => {
 
 export const getEvents = async (req, res, next) => {
     try {
-        const events = await Event.find({ hostId: req.user.id })
+        const hostId = req.user.id;
+        const CACHE_KEY = `host_events_${hostId}`;
+        
+        // ⚡ Check cache first
+        const cached = await cacheService.get(CACHE_KEY);
+        if (cached) return res.status(200).json({ success: true, events: cached });
+
+        const events = await Event.find({ hostId })
             .select('title date startTime coverImage status attendeeCount locationVisibility isLocationRevealed displayPrice')
             .sort({ date: -1 }) // Sort newest first
             .lean();
+        
+        // ⚡ Cache for 2 minutes
+        await cacheService.set(CACHE_KEY, events, 120);
+        
         return res.status(200).json({ success: true, events });
     } catch (error) {
         next(error);
