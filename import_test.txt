@@ -1,0 +1,71 @@
+﻿node : node:internal/modul
+es/esm/resolve:274
+At line:1 char:47
++ ...  
+refactor_imports.js > 
+refactor.log 2>&1; node 
+server.js 2>&1 | Out-F ...
++                         
+                      
+~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo        
+      : NotSpecified: (n  
+  ode:internal/modules/   
+ esm/resolve:274:Strin    
+g) [], RemoteExceptio    n
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+    throw new 
+ERR_MODULE_NOT_FOUND(
+          ^
+
+Error 
+[ERR_MODULE_NOT_FOUND]: 
+Cannot find module 'C:\Use
+rs\devan\Downloads\stitch_
+curated_discovery\codebase
+\backend-admin\config\sock
+et.js' imported from C:\Us
+ers\devan\Downloads\stitch
+_curated_discovery\codebas
+e\backend-admin\src\socket
+.js
+    at finalizeResolution 
+(node:internal/modules/esm
+/resolve:274:11)
+    at moduleResolve (node
+:internal/modules/esm/reso
+lve:859:10)
+    at defaultResolve (nod
+e:internal/modules/esm/res
+olve:983:11)
+    at ModuleLoader.defaul
+tResolve (node:internal/mo
+dules/esm/loader:783:12)
+    at 
+#cachedDefaultResolve (nod
+e:internal/modules/esm/loa
+der:707:25)
+    at 
+ModuleLoader.resolve (node
+:internal/modules/esm/load
+er:690:38)
+    at ModuleLoader.getMod
+uleJobForImport (node:inte
+rnal/modules/esm/loader:30
+7:38)
+    at ModuleJob._link (no
+de:internal/modules/esm/mo
+dule_job:183:49) {
+  code: 
+'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/d
+evan/Downloads/stitch_cura
+ted_discovery/codebase/bac
+kend-admin/config/socket.j
+s'
+}
+
+Node.js v22.18.0
