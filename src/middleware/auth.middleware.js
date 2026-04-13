@@ -46,7 +46,7 @@ export const protect = async (req, res, next) => {
                 await cacheService.set(CACHE_KEY, { role: userRole, isActive }, 120);
             } else {
                 console.log('[Auth] User not found in any collection:', decoded.userId);
-                return res.status(401).json({ success: false, message: 'Record missing from registry.' });
+                return res.status(401).json({ success: false, message: 'Token is invalid or expired' });
             }
         } else {
             userRole = cached.role;

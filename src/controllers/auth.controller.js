@@ -37,12 +37,12 @@ const generateTokens = (user) => {
     const accessToken = jwt.sign(
         { userId: user._id, role: user.role, hostId: user.hostId || null },
         process.env.JWT_SECRET || 'supersecretkey123',
-        { expiresIn: '15m' }
+        { expiresIn: '7d' } // Extended from 15m — APK needs long-lived tokens
     );
     const refreshToken = jwt.sign(
         { userId: user._id },
         process.env.JWT_REFRESH_SECRET || 'superrefreshsecret123',
-        { expiresIn: '7d' }
+        { expiresIn: '30d' }
     );
     return { accessToken, refreshToken };
 };
