@@ -444,7 +444,7 @@ export const getBookingList = async (req, res, next) => {
 export const getAdminStats = async (req, res, next) => {
     try {
 
-        const [userCount, activeHosts, totalHosts, pendingHosts, totalBookings, revenueAgg, foodRevenueAgg] = await Promise.all([
+        const [userCount, activeHosts, totalHosts, pendingHosts, totalBookings, revenueAgg] = await Promise.all([
             User.countDocuments({ role: 'user' }),
             Host.countDocuments({ role: 'HOST', hostStatus: 'ACTIVE' }),
             Host.countDocuments({ role: 'HOST' }),
@@ -453,15 +453,8 @@ export const getAdminStats = async (req, res, next) => {
             Booking.aggregate([
                 { $match: { paymentStatus: 'paid', status: { $ne: 'cancelled' } } },
                 { $group: { _id: null, total: { $sum: '$pricePaid' } } }
-            ]),
-            FoodOrder.aggregate([
-                { $match: { paymentStatus: 'paid', status: { $in: ['completed', 'out_for_delivery'] } } },
-                { $group: { _id: null, total: { $sum: '$totalAmount' } } }
             ])
         ]);
-
-        const ticketRevenue = revenueAgg[0]?.total || 0;
-        const orderRevenue = foodRevenueAgg[0]?.total || 0;
 
         const stats = {
             users: userCount,
@@ -469,9 +462,7 @@ export const getAdminStats = async (req, res, next) => {
             hosts: totalHosts,
             pendingHosts,
             bookings: totalBookings,
-            totalRevenue: ticketRevenue + orderRevenue, // COMBINED as requested
-            ticketRevenue,
-            orderRevenue,
+            totalRevenue: revenueAgg[0]?.total || 0,
             updatedAt: new Date()
         };
 
