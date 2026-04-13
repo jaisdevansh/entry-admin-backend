@@ -274,6 +274,7 @@ export const verifyHost = async (req, res, next) => {
 
         // Proactive Cache Invalidation
         await cacheService.delete(`auth_status_${id}`);
+        await cacheService.delete(`profile_${id}`); // ⚡ CRITICAL: Clear host profile cache
         await cacheService.delete('admin_dashboard_stats');
         await cacheService.delete('events_all_guest_v11'); 
 
@@ -661,6 +662,7 @@ export const toggleHostRegistryStatus = async (req, res, next) => {
         }
 
         await cacheService.delete(`auth_status_${id}`);
+        await cacheService.delete(`profile_${id}`); // ⚡ CRITICAL: Clear host profile cache
         await cacheService.delete('events_all_guest_v11');
         res.status(200).json({ success: true, message: `Host status updated to ${status}` });
     } catch (error) {
