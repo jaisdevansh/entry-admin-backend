@@ -16,25 +16,50 @@ export const initSocket = (server) => {
     // Authentication middleware
     io.use((socket, next) => {
         const token = socket.handshake.auth.token;
-        if (!token) return next(new Error('Authentication required'));
+        if (!token) {
+            console.log('[Socket] ❌ No token provided');
+            return next(new Error('Authentication required'));
+        }
         
         try {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             socket.user = decoded;
+            
+            // Log the decoded token structure for debugging
+            console.log('[Socket] ✅ Token decoded:', { 
+                userId: decoded.userId || decoded.id || decoded.sub,
+                role: decoded.role,
+                hostId: decoded.hostId,
+                hasUserId: !!decoded.userId,
+                hasId: !!decoded.id,
+                hasSub: !!decoded.sub
+            });
+            
             next();
         } catch (err) {
-            next(new Error('Invalid token'));
+            console.log('[Socket] ❌ Token verification failed:', err.message);
+            return next(new Error('Invalid token'));
         }
     });
 
     io.on('connection', (socket) => {
-        const userId = socket.user.id;
+        // Support multiple ID field names from JWT
+        const userId = socket.user.userId || socket.user.id || socket.user.sub || socket.user._id;
+        
+        if (!userId) {
+            console.error('[Socket] No user ID found in token. Token payload:', JSON.stringify(socket.user));
+            socket.disconnect();
+            return;
+        }
+        
+        console.log(`[Socket] ✅ User connected: ${userId} (${socket.user.role})`);
         
         if (!users.has(userId)) users.set(userId, new Set());
         users.get(userId).add(socket.id);
         
         // Native socket.io targeting
         socket.join(userId.toString());
+        console.log(`[Socket] User ${userId} joined room: ${userId.toString()}`);
 
         // Admins and Security join shared admin room for host chat and emergency notifications
         const normalizedRole = socket.user.role?.toLowerCase();

@@ -8,6 +8,7 @@ import { Admin } from '../models/admin.model.js';
 import { cacheService } from '../services/cache.service.js';
 import { sendNotification } from '../services/notification.service.js';
 import { uploadToCloudinary } from '../config/cloudinary.config.js';
+import { getIO } from '../socket.js';
 
 // ── CREATE HOST ─────────────────────────────────────────────────────────────
 export const createHost = async (req, res, next) => {
@@ -212,6 +213,31 @@ export const verifyHost = async (req, res, next) => {
                 type: 'SYSTEM'
             });
 
+            // 🔥 REAL-TIME: Emit socket event to notify host immediately
+            try {
+                const io = getIO();
+                if (io) {
+                    const roomName = id.toString();
+                    console.log(`[Admin] Emitting APPROVAL to room: ${roomName}`);
+                    
+                    io.to(roomName).emit('host:status:updated', { 
+                        hostStatus: 'ACTIVE',
+                        message: 'Your account has been verified and activated!'
+                    });
+                    
+                    const socketsInRoom = await io.in(roomName).fetchSockets();
+                    console.log(`[Admin] APPROVAL - Sockets in room ${roomName}:`, socketsInRoom.length);
+                    
+                    if (socketsInRoom.length === 0) {
+                        console.warn(`[Admin] ⚠️ APPROVAL - No sockets found for host ${id}`);
+                    } else {
+                        console.log(`[Admin] ✅ APPROVAL event sent to ${socketsInRoom.length} socket(s)`);
+                    }
+                }
+            } catch (socketErr) {
+                console.error('[Admin] Socket emit failed (approval):', socketErr.message);
+            }
+
         } else if (action === 'reject') {
             host.hostStatus = 'REJECTED';
             host.kycRejectionReason = reason;
@@ -222,6 +248,26 @@ export const verifyHost = async (req, res, next) => {
                 message: `Your profile submission was rejected: ${reason}. Please update your documents.`,
                 type: 'SYSTEM' // Using existing system type, can add ALERT if supported
             });
+
+            // 🔥 REAL-TIME: Emit socket event to notify host immediately
+            try {
+                const io = getIO();
+                if (io) {
+                    const roomName = id.toString();
+                    console.log(`[Admin] Emitting REJECTION to room: ${roomName}`);
+                    
+                    io.to(roomName).emit('host:status:updated', { 
+                        hostStatus: 'REJECTED',
+                        message: 'Your verification was rejected',
+                        reason: reason
+                    });
+                    
+                    const socketsInRoom = await io.in(roomName).fetchSockets();
+                    console.log(`[Admin] REJECTION - Sockets in room ${roomName}:`, socketsInRoom.length);
+                }
+            } catch (socketErr) {
+                console.error('[Admin] Socket emit failed (rejection):', socketErr.message);
+            }
         }
 
         await host.save();
@@ -416,8 +462,8 @@ export const getBookingList = async (req, res, next) => {
 
         const [bookings, total] = await Promise.all([
             Booking.find(query)
-                .select('userId hostId eventId pricePaid guests status createdAt')
-                .populate('userId', 'name email profileImage')
+                .select('userId hostId eventId pricePaid guests ticketType status paymentStatus createdAt')
+                .populate('userId', 'name email phone profileImage')
                 .populate('hostId', 'name profileImage')
                 .populate('eventId', 'title')
                 .skip(skip)
@@ -585,6 +631,33 @@ export const toggleHostRegistryStatus = async (req, res, next) => {
 
         if (status === 'SUSPENDED') {
             await Event.updateMany({ hostId: id, status: 'LIVE' }, { status: 'PAUSED' });
+        }
+
+        // 🔥 REAL-TIME: Emit socket event to notify host immediately
+        try {
+            const io = getIO();
+            if (io) {
+                // Emit to the specific host's room
+                const roomName = id.toString();
+                console.log(`[Admin] Emitting host:status:updated to room: ${roomName}, status: ${status}`);
+                
+                io.to(roomName).emit('host:status:updated', { 
+                    hostStatus: status,
+                    message: status === 'ACTIVE' ? 'Your account has been activated!' : 'Your account has been suspended'
+                });
+                
+                // Also emit to all connected sockets for this host (backup)
+                const socketsInRoom = await io.in(roomName).fetchSockets();
+                console.log(`[Admin] Sockets in room ${roomName}:`, socketsInRoom.length);
+                
+                if (socketsInRoom.length === 0) {
+                    console.warn(`[Admin] ⚠️ No sockets found in room ${roomName} - host may not be connected`);
+                } else {
+                    console.log(`[Admin] ✅ Event emitted to ${socketsInRoom.length} socket(s)`);
+                }
+            }
+        } catch (socketErr) {
+            console.error('[Admin] Socket emit failed:', socketErr.message);
         }
 
         await cacheService.delete(`auth_status_${id}`);
