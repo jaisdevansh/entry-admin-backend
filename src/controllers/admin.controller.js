@@ -202,9 +202,11 @@ export const verifyHost = async (req, res, next) => {
         }
 
         if (action === 'approve') {
+            console.log(`[Admin] Approving host ${id}. Current status:`, host.hostStatus);
             host.hostStatus = 'ACTIVE';
             host.isVerified = true;
             host.kycRejectionReason = '';
+            console.log(`[Admin] Updated host object. New status:`, host.hostStatus, 'isVerified:', host.isVerified);
             
             // Smart Notification
             await sendNotification(host._id, {
@@ -239,6 +241,7 @@ export const verifyHost = async (req, res, next) => {
             }
 
         } else if (action === 'reject') {
+            console.log(`[Admin] Rejecting host ${id}. Reason:`, reason);
             host.hostStatus = 'REJECTED';
             host.kycRejectionReason = reason;
 
@@ -270,24 +273,35 @@ export const verifyHost = async (req, res, next) => {
             }
         }
 
-        await host.save();
+        console.log(`[Admin] Saving host to database...`);
+        const savedHost = await host.save();
+        console.log(`[Admin] ✅ Host saved successfully. DB status:`, savedHost.hostStatus, 'isVerified:', savedHost.isVerified);
 
-        // Proactive Cache Invalidation
+        // Proactive Cache Invalidation - AGGRESSIVE with CORRECT keys
+        console.log(`[Admin] Clearing cache for host ${id}...`);
         await cacheService.delete(`auth_status_${id}`);
-        await cacheService.delete(`profile_${id}`); // ⚡ CRITICAL: Clear host profile cache
+        await cacheService.delete(`profile_${id}`);
+        await cacheService.delete(`host_profile_${id}`);
+        await cacheService.delete(`hostProfile_${id}`);
+        await cacheService.delete(`host:profile:${id}`); // ⚡ CRITICAL: Correct cache key format
         await cacheService.delete('admin_dashboard_stats');
-        await cacheService.delete('events_all_guest_v11'); 
+        await cacheService.delete('events_all_guest_v11');
+        console.log(`[Admin] ✅ Cache cleared successfully`);
 
         res.status(200).json({
             success: true,
             message: `Host ${action}d successfully.`,
             data: {
-                id: host._id,
-                hostStatus: host.hostStatus,
-                kycRejectionReason: host.kycRejectionReason
+                id: savedHost._id,
+                hostStatus: savedHost.hostStatus,
+                isVerified: savedHost.isVerified,
+                kycRejectionReason: savedHost.kycRejectionReason
             }
         });
+        
+        console.log(`[Admin] ✅ Response sent. Host ${id} is now ${savedHost.hostStatus}`);
     } catch (error) {
+        console.error('[Admin] ❌ Error in verifyHost:', error);
         next(error);
     }
 };
