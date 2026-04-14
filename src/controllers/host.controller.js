@@ -25,16 +25,15 @@ export const getHostProfile = async (req, res, next) => {
         const hostId = req.user.id;
         const CACHE_KEY = ckey('profile', hostId);
         
-        // ⚡ CRITICAL: Check for fresh data flag (set by admin approval)
-        const forceRefresh = req.query.refresh === 'true';
-        
-        if (!forceRefresh) {
-            const cached = await cacheService.get(CACHE_KEY);
-            if (cached) {
-                console.log('[getHostProfile] Returning cached data:', cached.hostStatus);
-                return res.status(200).json({ success: true, data: cached });
-            }
-        }
+        // ⚡ DISABLED: Skip cache completely for instant updates
+        // const forceRefresh = req.query.refresh === 'true';
+        // if (!forceRefresh) {
+        //     const cached = await cacheService.get(CACHE_KEY);
+        //     if (cached) {
+        //         console.log('[getHostProfile] Returning cached data:', cached.hostStatus);
+        //         return res.status(200).json({ success: true, data: cached });
+        //     }
+        // }
 
         console.log('[getHostProfile] Fetching fresh data from DB for host:', hostId);
 
