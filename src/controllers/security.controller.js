@@ -2,24 +2,7 @@ import mongoose from 'mongoose';
 import { IssueReport } from '../models/IssueReport.js';
 import { Booking } from '../models/booking.model.js';
 import { getIO } from '../socket.js';
-
-/**
- * Extracts a readable table label from a composite tableId slug like "69dcf6d6_s42".
- * Returns the seat number or a clean label.
- */
-const cleanTableId = (raw) => {
-    if (!raw || raw === 'N/A' || raw === '--') return null;
-    const trimmed = raw.trim();
-    if (trimmed.length <= 10) return trimmed.toUpperCase(); // Already clean
-    // Pattern: {hexId}_s{seatNumber} — extract seat number
-    const seatMatch = trimmed.match(/_s(\d+)$/i);
-    if (seatMatch) return `SEAT ${seatMatch[1]}`;
-    // Try splitting by dash/underscore and find shortest non-ObjectId part
-    const parts = trimmed.split(/[-_]/);
-    const shortPart = parts.find(p => p.length < 8 && /[A-Za-z0-9]/.test(p) && !mongoose.Types.ObjectId.isValid(p));
-    if (shortPart) return shortPart.toUpperCase();
-    return null; // Garbage — caller should use fallback
-};
+import { cleanTableId, cleanZone } from '../utils/tableUtils.js';
 
 /**
  * @desc    Submit an issue report (User-side)
@@ -55,28 +38,25 @@ export const createIssueReport = async (req, res, next) => {
                 .sort({ createdAt: -1 })
                 .lean();
                 
-            if (booking) {
-                const rawTable = booking.tableId;
-                const parsedTable = cleanTableId(rawTable);
-                finalTable = parsedTable || (finalTable && finalTable !== 'N/A' ? finalTable : null);
-                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : null);
+        const rawBookingTable = booking ? booking.tableId : null;
+                const rawBookingZone = booking ? booking.ticketType : null;
+
+                const parsedTable = cleanTableId(rawBookingTable);
+                const parsedZone = cleanZone(rawBookingZone);
+
+                finalTable = parsedTable || cleanTableId(finalTable);
+                finalZone = parsedZone || cleanZone(finalZone);
             }
-        }
-        // Always clean the final table value before saving
-        if (finalTable) {
-            const cleaned = cleanTableId(finalTable);
-            if (cleaned) finalTable = cleaned;
-        }
 
         const report = await IssueReport.create({
             userId: req.user.id,
-            userName: req.user.name || req.user.username || 'Guest', // Denormalize for display
+            userName: req.user.name || req.user.username || 'Guest',
             eventId,
             hostId: req.body.hostId || null,
             type,
             message,
-            tableId: finalTable || 'General Entry',
-            zone: finalZone || 'Main Floor',
+            tableId: finalTable || 'FLOOR',
+            zone: finalZone || 'GENERAL',
             status: 'open'
         });
 
@@ -174,7 +154,15 @@ export const getOpenIssues = async (req, res, next) => {
             { $project: { userInfo: 0 } }
         ]);
 
-        res.status(200).json({ success: true, count: issues.length, data: issues });
+        // Normalize all display fields on read (handles old records with garbage data)
+        const normalized = issues.map(issue => ({
+            ...issue,
+            tableId: cleanTableId(issue.tableId) || 'FLOOR',
+            zone: cleanZone(issue.zone) || 'GENERAL',
+            displayName: issue.displayName || issue.userName || 'Guest',
+        }));
+
+        res.status(200).json({ success: true, count: normalized.length, data: normalized });
     } catch (error) {
         next(error);
     }
@@ -196,7 +184,7 @@ export const respondToIssue = async (req, res, next) => {
                 assignedSecurityId: guardId 
             },
             { new: true }
-        ).populate('userId', 'name');
+        ).select('type message zone tableId userName status createdAt').lean();
 
         if (!issue) {
             return res.status(400).json({ success: false, message: 'Issue already responded to or invalid' });
@@ -258,12 +246,19 @@ export const getMyIssues = async (req, res, next) => {
             assignedSecurityId: req.user.id,
             status: 'in_progress'
         })
-        .select('type message zone tableId status createdAt userId')
-        .populate('userId', 'name profileImage')
+        .select('type message zone tableId userName status createdAt userId')
         .sort({ updatedAt: -1 })
         .lean();
 
-        res.status(200).json({ success: true, data: issues });
+        // Normalize display fields on read (for old records without clean data)
+        const normalized = issues.map(issue => ({
+            ...issue,
+            tableId: cleanTableId(issue.tableId) || 'FLOOR',
+            zone: cleanZone(issue.zone) || 'GENERAL',
+            displayName: issue.userName || 'Guest',
+        }));
+
+        res.status(200).json({ success: true, data: normalized });
     } catch (error) {
         next(error);
     }
@@ -278,13 +273,19 @@ export const getResolvedHistory = async (req, res, next) => {
         const issues = await IssueReport.find({
             status: 'resolved'
         })
-        .select('type message zone tableId status resolvedAt userId assignedSecurityId')
-        .populate('userId', 'name profileImage')
+        .select('type message zone tableId userName status resolvedAt userId assignedSecurityId')
         .sort({ resolvedAt: -1 })
         .limit(50)
         .lean();
 
-        res.status(200).json({ success: true, data: issues });
+        const normalized = issues.map(issue => ({
+            ...issue,
+            tableId: cleanTableId(issue.tableId) || 'FLOOR',
+            zone: cleanZone(issue.zone) || 'GENERAL',
+            displayName: issue.userName || 'Guest',
+        }));
+
+        res.status(200).json({ success: true, data: normalized });
     } catch (error) {
         next(error);
     }
