@@ -4,6 +4,24 @@ import { Booking } from '../models/booking.model.js';
 import { getIO } from '../socket.js';
 
 /**
+ * Extracts a readable table label from a composite tableId slug like "69dcf6d6_s42".
+ * Returns the seat number or a clean label.
+ */
+const cleanTableId = (raw) => {
+    if (!raw || raw === 'N/A' || raw === '--') return null;
+    const trimmed = raw.trim();
+    if (trimmed.length <= 10) return trimmed.toUpperCase(); // Already clean
+    // Pattern: {hexId}_s{seatNumber} — extract seat number
+    const seatMatch = trimmed.match(/_s(\d+)$/i);
+    if (seatMatch) return `SEAT ${seatMatch[1]}`;
+    // Try splitting by dash/underscore and find shortest non-ObjectId part
+    const parts = trimmed.split(/[-_]/);
+    const shortPart = parts.find(p => p.length < 8 && /[A-Za-z0-9]/.test(p) && !mongoose.Types.ObjectId.isValid(p));
+    if (shortPart) return shortPart.toUpperCase();
+    return null; // Garbage — caller should use fallback
+};
+
+/**
  * @desc    Submit an issue report (User-side)
  * @route   POST /api/v1/security/reports
  */
@@ -38,9 +56,16 @@ export const createIssueReport = async (req, res, next) => {
                 .lean();
                 
             if (booking) {
-                finalTable = (booking.tableId && booking.tableId.trim() !== '') ? booking.tableId : (finalTable && finalTable !== 'N/A' ? finalTable : 'General Entry');
-                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : 'Main Floor');
+                const rawTable = booking.tableId;
+                const parsedTable = cleanTableId(rawTable);
+                finalTable = parsedTable || (finalTable && finalTable !== 'N/A' ? finalTable : null);
+                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : null);
             }
+        }
+        // Always clean the final table value before saving
+        if (finalTable) {
+            const cleaned = cleanTableId(finalTable);
+            if (cleaned) finalTable = cleaned;
         }
 
         const report = await IssueReport.create({
