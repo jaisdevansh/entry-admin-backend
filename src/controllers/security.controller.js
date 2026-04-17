@@ -28,14 +28,18 @@ export const createIssueReport = async (req, res, next) => {
         let finalTable = tableId;
         let finalZone = zone;
 
-        if (!finalTable || !finalZone) {
-            const booking = await Booking.findOne({ userId: req.user.id, eventId })
-                .select('tableId ticketType')
+        if (!finalTable || finalTable === 'N/A' || finalTable === '--' || finalTable.trim() === '' || !finalZone) {
+            const bookingQuery = { userId: req.user.id };
+            if (eventId) bookingQuery.eventId = eventId;
+
+            const booking = await Booking.findOne(bookingQuery)
+                .select('tableId ticketType guests')
                 .sort({ createdAt: -1 })
                 .lean();
+                
             if (booking) {
-                finalTable = finalTable || booking.tableId || 'Floor';
-                finalZone = finalZone || booking.ticketType || 'general';
+                finalTable = (booking.tableId && booking.tableId.trim() !== '') ? booking.tableId : (finalTable && finalTable !== 'N/A' ? finalTable : 'General Entry');
+                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : 'Main Floor');
             }
         }
 
@@ -45,8 +49,8 @@ export const createIssueReport = async (req, res, next) => {
             hostId: req.body.hostId || null, // Should be passed or fetched
             type,
             message,
-            tableId: finalTable || 'N/A',
-            zone: finalZone || 'General',
+            tableId: finalTable || 'General Entry',
+            zone: finalZone || 'Main Floor',
             status: 'open'
         });
 
