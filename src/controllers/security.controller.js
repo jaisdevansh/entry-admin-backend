@@ -45,8 +45,9 @@ export const createIssueReport = async (req, res, next) => {
 
         const report = await IssueReport.create({
             userId: req.user.id,
+            userName: req.user.name || req.user.username || 'Guest', // Denormalize for display
             eventId,
-            hostId: req.body.hostId || null, // Should be passed or fetched
+            hostId: req.body.hostId || null,
             type,
             message,
             tableId: finalTable || 'General Entry',
@@ -123,15 +124,29 @@ export const getOpenIssues = async (req, res, next) => {
             },
             { $sort: { priorityOrder: 1, createdAt: -1 } },
             {
+                // Try to populate from local users collection (admin/staff/host)
+                // If not found (user is in user-backend DB), fall back to stored userName
                 $lookup: {
                     from: 'users',
                     localField: 'userId',
                     foreignField: '_id',
-                    as: 'userId',
+                    as: 'userInfo',
                     pipeline: [{ $project: { name: 1, profileImage: 1 } }]
                 }
             },
-            { $unwind: { path: '$userId', preserveNullAndEmptyArrays: true } }
+            {
+                $addFields: {
+                    // Use populated name if found, else use stored userName field
+                    displayName: {
+                        $cond: [
+                            { $gt: [{ $size: '$userInfo' }, 0] },
+                            { $arrayElemAt: ['$userInfo.name', 0] },
+                            '$userName'
+                        ]
+                    }
+                }
+            },
+            { $project: { userInfo: 0 } }
         ]);
 
         res.status(200).json({ success: true, count: issues.length, data: issues });
