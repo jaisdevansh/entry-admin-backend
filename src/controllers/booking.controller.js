@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Booking } from '../models/booking.model.js';
 import { FoodOrder } from '../models/FoodOrder.js';
 import { cacheService } from '../services/cache.service.js';
+import { sendNotification } from '../services/notification.service.js';
 
 export const getMyBookings = async (req, res, next) => {
     try {
@@ -139,6 +140,33 @@ export const checkInQR = async (req, res, next) => {
         const uId = booking.userId?._id || booking.userId;
         await cacheService.delete(`my_bookings_${uId}`);
         await cacheService.delete('events_all_guest_v11');
+
+        // ── Push Notifications ────────────────────────────────────────────────
+        try {
+            const userName = booking.userId?.name || 'A guest';
+            
+            // 1. Notify User
+            if (uId) {
+                await sendNotification(uId, {
+                    title: 'Welcome Inside! 🎉',
+                    message: `You have successfully checked in. Have a great time!`,
+                    type: 'SUCCESS',
+                    data: { bookingId: booking._id.toString() }
+                });
+            }
+
+            // 2. Notify Host
+            if (hostContextId) {
+                await sendNotification(hostContextId, {
+                    title: 'Guest Checked In ✅',
+                    message: `${userName} just checked in.`,
+                    type: 'INFO',
+                    data: { bookingId: booking._id.toString() }
+                });
+            }
+        } catch (pushErr) {
+            console.error('[Booking CheckIn] Push Err:', pushErr.message);
+        }
 
         res.status(200).json({ success: true, ticketStatus: "Checked In", bookingId: booking._id });
     } catch (error) {

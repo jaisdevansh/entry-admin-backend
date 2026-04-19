@@ -84,6 +84,14 @@ export const createIssueReport = async (req, res, next) => {
                 issueId: report._id.toString() 
             });
 
+            // Notify Host as well
+            if (report.hostId) {
+                await notificationService.sendToUser(report.hostId.toString(), title, body, { 
+                    type: 'issue', 
+                    issueId: report._id.toString() 
+                });
+            }
+
             // Record in user's Notification history
             const Notification = (await import('../models/Notification.js')).default;
             await Notification.create({

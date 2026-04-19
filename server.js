@@ -30,6 +30,7 @@ import hostRoutes     from './src/routes/host.routes.js';
 import staffRoutes    from './src/routes/staff.routes.js';
 import waiterRoutes   from './src/routes/waiter.routes.js';
 import securityRoutes from './src/routes/security.routes.js';
+import chatRoutes     from './src/routes/chat.routes.js';
 import { errorHandler, notFoundHandler } from './src/middleware/error.js';
 
 // ── App Setup ─────────────────────────────────────────────────────────────────
@@ -128,6 +129,7 @@ app.use('/analytics',        analyticsRoutes);
 app.use('/api/v1/staff',     staffRoutes);
 app.use('/api/v1/waiter',    waiterRoutes);
 app.use('/api/v1/security',  securityRoutes);
+app.use('/api/chat',         chatRoutes);  // 🆕 Production Chat System
 
 // ⚡ 404 Handler - Must be after all routes
 app.use(notFoundHandler);
