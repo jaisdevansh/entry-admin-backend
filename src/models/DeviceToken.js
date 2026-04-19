@@ -14,7 +14,7 @@ const DeviceTokenSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['user', 'waiter', 'security', 'admin'],
+        enum: ['user', 'waiter', 'security', 'admin', 'host'],
         required: true,
         index: true
     },
