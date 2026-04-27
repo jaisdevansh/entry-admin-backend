@@ -37,9 +37,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     passport.use(new GoogleStrategy({
         clientID:     process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL:  process.env.GOOGLE_CALLBACK_URL || (process.env.NODE_ENV === 'production' 
-            ? 'https://stayin.in/api2/auth/callback/google'
-            : 'http://localhost:3000/api/auth/callback/google'),
+        callbackURL:  process.env.GOOGLE_CALLBACK_URL || 'https://stayin.in/api2/auth/callback/google',
+        proxy: true,
         scope: ['profile', 'email'],
     }, async (accessToken, refreshToken, profile, done) => {
         try {
